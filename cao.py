@@ -1,6 +1,5 @@
 import pandas as pd
 import requests
-import isbnlib
 from bs4 import BeautifulSoup
 import time
 import os
@@ -17,124 +16,199 @@ if not os.path.exists(IMAGE_DIR):
     os.makedirs(IMAGE_DIR)
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Referer": "https://www.google.com/"
+    "Referer": "https://www.amazon.com/"
 }
 
 # -------------------------
 # HELPERS
 # -------------------------
+def clean_text(text):
+    if not text: return ""
+    text = re.sub(r'[\u200e\u200f\u200b\u200c\u200d\ufeff]', '', text)
+    return text.strip()
+
 def parse_dimensions(dim_str):
-    """Parses '5.39 x 1.38 x 8.07 inches' into Length, Width, Height."""
-    if not dim_str:
-        return None, None, None
+    if not dim_str: return None, None, None
     matches = re.findall(r"(\d+\.?\d*)", dim_str)
+    # Extract unit (e.g., inches, cm)
+    unit_match = re.search(r"([a-zA-Z]+)$", dim_str.strip())
+    unit = unit_match.group(1) if unit_match else ""
+    
     if len(matches) >= 3:
-        return matches[0], matches[1], matches[2]
+        l = f"{matches[0]} {unit}".strip()
+        w = f"{matches[1]} {unit}".strip()
+        h = f"{matches[2]} {unit}".strip()
+        return l, w, h
     return None, None, None
 
 def download_image(url, isbn):
-    """Downloads image and returns the local filename."""
-    if not url:
-        return None
+    if not url: return None
     try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
+        res = requests.get(url, headers=HEADERS, timeout=15)
         if res.status_code == 200:
             filename = f"{isbn}.jpg"
             filepath = os.path.join(IMAGE_DIR, filename)
             with open(filepath, "wb") as f:
                 f.write(res.content)
             return filename
-    except:
-        pass
+    except: pass
     return None
 
 # -------------------------
 # GOOGLE BOOKS API
 # -------------------------
-def get_google_books(isbn):
-    url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}"
+def get_google_books(query, query_type="isbn"):
+    q = f"isbn:{query}" if query_type == "isbn" else query
+    url = f"https://www.googleapis.com/books/v1/volumes?q={q}"
     try:
         res = requests.get(url, timeout=10)
         data = res.json()
-        if "items" not in data:
-            return None
+        if "items" not in data: return None
         info = data["items"][0]["volumeInfo"]
         return {
-            "ISBN": isbn,
             "Tên sách": info.get("title"),
             "NXB": info.get("publisher"),
             "description(vi)": info.get("description"),
             "image_url": info.get("imageLinks", {}).get("thumbnail")
         }
-    except:
-        return None
+    except: return None
+
+# -------------------------
+# OPEN LIBRARY API
+# -------------------------
+def get_open_library_data(isbn):
+    url = f"https://openlibrary.org/api/books?bibkeys=ISBN:{isbn}&format=json&jscmd=data"
+    try:
+        res = requests.get(url, timeout=10)
+        data = res.json().get(f"ISBN:{isbn}")
+        if not data: return None
+        return {
+            "Tên sách": data.get("title"),
+            "NXB": data.get("publishers", [{}])[0].get("name"),
+            "Format": data.get("physical_format"),
+            "Khối lượng": data.get("weight"),
+            "image_url": data.get("cover", {}).get("large")
+        }
+    except: return None
 
 # -------------------------
 # AMAZON SCRAPER
 # -------------------------
-def get_amazon_data(isbn):
+def get_amazon_data(query, query_type="isbn"):
     try:
-        search_url = f"https://www.amazon.com/s?k={isbn}"
-        res = requests.get(search_url, headers=HEADERS, timeout=10)
+        search_suffix = "&i=stripbooks" if query_type == "isbn" else " paperback"
+        search_url = f"https://www.amazon.com/s?k={query}{search_suffix}"
+        res = requests.get(search_url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(res.text, "lxml")
 
-        link = soup.select_one("a.a-link-normal.s-no-outline")
-        if not link:
-            return None
+        links = soup.select("a.a-link-normal.s-no-outline")
+        if not links: return None
+            
+        product_url = None
+        for l in links:
+            href = l.get("href", "")
+            if "/dp/" in href or "/gp/product/" in href:
+                # Prefer non-Audible/Kindle
+                link_text = l.get_text().lower()
+                if "audible" not in link_text and "kindle" not in link_text:
+                    product_url = "https://www.amazon.com" + href
+                    break
+        
+        if not product_url:
+            product_url = "https://www.amazon.com" + links[0].get("href")
 
-        product_url = "https://www.amazon.com" + link.get("href")
-        time.sleep(1) # Be gentle
-        res2 = requests.get(product_url, headers=HEADERS, timeout=10)
+        time.sleep(1.5)
+        res2 = requests.get(product_url, headers=HEADERS, timeout=15)
         soup2 = BeautifulSoup(res2.text, "lxml")
 
-        # Basic Info
         title = soup2.select_one("#productTitle")
-        title = title.text.strip() if title else None
+        title = clean_text(title.text) if title else None
         
         format_val = soup2.select_one("#productBinding")
-        format_val = format_val.text.strip() if format_val else None
+        format_val = clean_text(format_val.text) if format_val else None
 
-        # Details (Publisher, Weight, Dimensions)
         details = {}
         for li in soup2.select("#detailBullets_feature_div li"):
-            text = li.get_text(separator=":", strip=True)
-            if ":" in text:
-                parts = text.split(":", 1)
-                key = parts[0].strip()
-                val = parts[1].strip()
-                # Clean up nested labels
-                val = val.split(":")[-1].strip()
-                details[key] = val
+            label_span = li.select_one(".a-text-bold")
+            if label_span:
+                label = clean_text(label_span.get_text()).replace(":", "").strip()
+                val = clean_text(li.get_text()).replace(clean_text(label_span.get_text()), "").strip()
+                details[label] = re.sub(r'^[:\s]+', '', val)
 
-        # Image
-        img = soup2.select_one("#landingImage")
-        img_url = img.get("src") if img else None
+        if not details.get("Publisher") or not details.get("Dimensions"):
+            for tr in soup2.select("table.a-keyvalue tr"):
+                th = tr.select_one("th")
+                td = tr.select_one("td")
+                if th and td:
+                    details[clean_text(th.get_text())] = clean_text(td.get_text())
 
-        # Description
+        img = soup2.select_one("#landingImage, #imgBlkFront, #ebooksImgBlkFront, #main-image")
+        img_url = None
+        if img:
+            # Try to get highest-res from dynamic image dict
+            if img.has_attr("data-a-dynamic-image"):
+                import json
+                try:
+                    dyn = json.loads(img.get("data-a-dynamic-image", "{}"))
+                    if dyn:
+                        # Get URL with max width
+                        img_url = max(dyn.keys(), key=lambda k: dyn[k][0])
+                except:
+                    pass
+            if not img_url:
+                img_url = img.get("src") or img.get("data-old-hires")
+
         desc_div = soup2.select_one("#bookDescription_feature_div")
-        desc = desc_div.get_text(strip=True) if desc_div else None
+        desc = clean_text(desc_div.get_text()) if desc_div else None
 
-        d_l, d_w, d_h = parse_dimensions(details.get("Dimensions"))
+        # Flexible matching
+        dim_str = details.get("Dimensions") or details.get("Product Dimensions") or details.get("Package Dimensions")
+        weight_str = details.get("Item Weight") or details.get("Weight")
+        pub_str = details.get("Publisher") or details.get("Publisher ")
+        
+        # Format detection improvements
+        # 1. Standard Binding
+        f_el = soup2.select_one("#productBinding")
+        # 2. Subtitle (Hardcover – June 20, 2024)
+        if not f_el:
+            f_el = soup2.select_one("#productSubtitle")
+        # 3. Selected Swatch
+        if not f_el:
+            swatch = soup2.select_one(".swatchElement.selected .a-color-base")
+            if swatch: f_el = swatch
+            
+        format_text = clean_text(f_el.get_text()) if f_el else None
+        # Clean up subtitle if it contains a date (Hardcover – ...)
+        if format_text and "–" in format_text:
+            format_text = format_text.split("–")[0].strip()
+            
+        final_format = format_text or details.get("Format") or details.get("Binding") or details.get("Program Type")
+        
+        if not final_format:
+            for k in details:
+                if "paperback" in k.lower() or "hardcover" in k.lower():
+                    final_format = k
+                    break
+
+        d_l, d_w, d_h = parse_dimensions(dim_str)
 
         return {
-            "ISBN": isbn,
             "Tên sách": title,
-            "NXB": details.get("Publisher"),
-            "Format": format_val,
-            "Khối lượng": details.get("Item Weight"),
+            "NXB": pub_str,
+            "Format": final_format,
+            "Khối lượng": weight_str,
             "Dài (Length)": d_l,
             "Rộng (Width)": d_w,
             "Cao (Height)": d_h,
             "image_url": img_url,
             "description(vi)": desc
         }
-
     except Exception as e:
-        print(f"Amazon error for {isbn}: {e}")
+        print(f"Amazon error for {query}: {e}")
         return None
 
 # -------------------------
@@ -142,53 +216,61 @@ def get_amazon_data(isbn):
 # -------------------------
 def process_isbn(isbn):
     print(f"Processing: {isbn}")
+    results = []
     
-    # Try Amazon first for details
-    data = get_amazon_data(isbn)
+    # Cascade 1: ISBN based
+    data_isbn = get_amazon_data(isbn, "isbn")
+    if data_isbn: results.append(data_isbn)
     
-    # If Amazon fails or missing title, try Google
-    if not data or not data.get("Tên sách"):
-        g_data = get_google_books(isbn)
-        if g_data:
-            if not data: data = {"ISBN": isbn}
-            data.update({k: v for k, v in g_data.items() if v})
+    # If ISBN result is Audiobook or missing dimensions, try Title based search for Paperback
+    is_audio = data_isbn and ("audio" in str(data_isbn.get("Format")).lower() or "audio" in str(data_isbn.get("NXB")).lower())
+    needs_dimensions = not data_isbn or not data_isbn.get("Dài (Length)")
+    
+    if is_audio or needs_dimensions:
+        title = data_isbn.get("Tên sách") if data_isbn else None
+        if not title:
+            g_temp = get_google_books(isbn, "isbn")
+            title = g_temp.get("Tên sách") if g_temp else None
+            
+        if title:
+            # Clean title of series info or brackets
+            clean_title = re.sub(r'\(.*?\)|\[.*?\]', '', title).strip()
+            print(f"  Fallback Title Search: {clean_title}")
+            data_title = get_amazon_data(clean_title, "title")
+            if data_title: results.append(data_title)
 
-    # Download image if found
-    if data and data.get("image_url"):
-        data["image_name"] = download_image(data["image_url"], isbn)
+    # API fallbacks
+    g_data = get_google_books(isbn, "isbn")
+    if g_data: results.append(g_data)
+    ol_data = get_open_library_data(isbn)
+    if ol_data: results.append(ol_data)
     
-    # Standardize result keys
-    result = {
-        "ISBN": isbn,
-        "Tên sách": data.get("Tên sách") if data else None,
-        "NXB": data.get("NXB") if data else None,
-        "Format": data.get("Format") if data else None,
-        "Khối lượng": data.get("Khối lượng") if data else None,
-        "Dài (Length)": data.get("Dài (Length)") if data else None,
-        "Rộng (Width)": data.get("Rộng (Width)") if data else None,
-        "Cao (Height)": data.get("Cao (Height)") if data else None,
-        "image_name": data.get("image_name") if data else None,
-        "description(vi)": data.get("description(vi)") if data else None
-    }
-    return result
+    # Merge
+    merged = {"ISBN": isbn}
+    fields = ["Tên sách", "NXB", "Format", "Khối lượng", "Dài (Length)", "Rộng (Width)", "Cao (Height)", "image_url", "description(vi)"]
+    for field in fields:
+        for res in results:
+            if res.get(field):
+                merged[field] = res[field]
+                break
+
+    if merged.get("image_url") and not merged.get("image_name"):
+        merged["image_name"] = download_image(merged["image_url"], isbn)
+    return merged
 
 def main():
-    if not os.path.exists(INPUT_FILE):
-        print(f"Error: {INPUT_FILE} not found!")
-        return
-
+    if not os.path.exists(INPUT_FILE): return
     df = pd.read_excel(INPUT_FILE)
     results = []
-
     for isbn in df.iloc[:, 0]:
         isbn = str(isbn).strip()
         if not isbn or isbn == "nan": continue
-        
-        data = process_isbn(isbn)
-        results.append(data)
-        time.sleep(2) # Avoid getting blocked
+        results.append(process_isbn(isbn))
+        time.sleep(3)
 
     output_df = pd.DataFrame(results)
+    cols = ["ISBN", "Tên sách", "NXB", "Format", "Khối lượng", "Dài (Length)", "Rộng (Width)", "Cao (Height)", "image_url", "image_name", "description(vi)"]
+    output_df = output_df.reindex(columns=cols)
     output_df.to_excel(OUTPUT_FILE, index=False)
     print(f"DONE -> {OUTPUT_FILE}")
 
