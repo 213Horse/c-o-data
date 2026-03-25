@@ -154,13 +154,11 @@ def get_amazon_data(query, query_type="isbn"):
         img = soup2.select_one("#landingImage, #imgBlkFront, #ebooksImgBlkFront, #main-image")
         img_url = None
         if img:
-            # Try to get highest-res from dynamic image dict
             if img.has_attr("data-a-dynamic-image"):
                 import json
                 try:
                     dyn = json.loads(img.get("data-a-dynamic-image", "{}"))
                     if dyn:
-                        # Get URL with max width
                         img_url = max(dyn.keys(), key=lambda k: dyn[k][0])
                 except:
                     pass
@@ -170,24 +168,18 @@ def get_amazon_data(query, query_type="isbn"):
         desc_div = soup2.select_one("#bookDescription_feature_div")
         desc = clean_text(desc_div.get_text()) if desc_div else None
 
-        # Flexible matching
         dim_str = details.get("Dimensions") or details.get("Product Dimensions") or details.get("Package Dimensions")
         weight_str = details.get("Item Weight") or details.get("Weight")
         pub_str = details.get("Publisher") or details.get("Publisher ")
         
-        # Format detection improvements
-        # 1. Standard Binding
         f_el = soup2.select_one("#productBinding")
-        # 2. Subtitle (Hardcover – June 20, 2024)
         if not f_el:
             f_el = soup2.select_one("#productSubtitle")
-        # 3. Selected Swatch
         if not f_el:
             swatch = soup2.select_one(".swatchElement.selected .a-color-base")
             if swatch: f_el = swatch
             
         format_text = clean_text(f_el.get_text()) if f_el else None
-        # Clean up subtitle if it contains a date (Hardcover – ...)
         if format_text and "–" in format_text:
             format_text = format_text.split("–")[0].strip()
             
@@ -216,14 +208,12 @@ def get_amazon_data(query, query_type="isbn"):
             "description(vi)": desc
         }
     except Exception as e:
-        print(f"Amazon error for {query}: {e}")
-        return None
+        return {"error": str(e)}
 
 # -------------------------
 # MAIN PROCESS
 # -------------------------
 def process_isbn(isbn):
-    print(f"Processing: {isbn}")
     results = []
     
     # Cascade 1: ISBN based
@@ -243,7 +233,6 @@ def process_isbn(isbn):
         if title:
             # Clean title of series info or brackets
             clean_title = re.sub(r'\(.*?\)|\[.*?\]', '', title).strip()
-            print(f"  Fallback Title Search: {clean_title}")
             data_title = get_amazon_data(clean_title, "title")
             if data_title: results.append(data_title)
 
@@ -266,9 +255,13 @@ def process_isbn(isbn):
         merged["image_name"] = download_image(merged["image_url"], isbn)
     return merged
 
-def main():
+def run_scraper(progress_callback=None, log_callback=None):
+    def emit_log(msg):
+        if log_callback: log_callback(msg)
+        print(msg)
+
     if not os.path.exists(INPUT_FILE):
-        print(f"Error: {INPUT_FILE} not found.")
+        emit_log(f"Error: {INPUT_FILE} not found.")
         return
     
     # 1. Load existing results if any to track progress
@@ -279,9 +272,9 @@ def main():
             existing_df = pd.read_excel(OUTPUT_FILE)
             if not existing_df.empty and "ISBN" in existing_df.columns:
                 existing_isbns = set(existing_df["ISBN"].astype(str).tolist())
-                print(f"Found {len(existing_isbns)} already processed items in {OUTPUT_FILE}")
+                emit_log(f"Found {len(existing_isbns)} already processed items in {OUTPUT_FILE}")
         except Exception as e:
-            print(f"Warning: Could not read {OUTPUT_FILE}, starting fresh. Error: {e}")
+            emit_log(f"Warning: Could not read {OUTPUT_FILE}, starting fresh. Error: {e}")
 
     # 2. Load input list
     df = pd.read_excel(INPUT_FILE)
@@ -295,25 +288,28 @@ def main():
             to_process.append(isbn_str)
     
     if not to_process:
-        print("All ISBNs have been processed!")
+        emit_log("All ISBNs have been processed!")
+        if progress_callback: progress_callback(100)
         return
 
     # 4. Process up to 30 items in batches of 30
     to_process = to_process[:30]
     batch_size = 30
     total_to_process = len(to_process)
-    print(f"Total remaining: {total_to_process}. Processing in batches of {batch_size}...")
+    emit_log(f"Total remaining: {total_to_process}. Processing in batches of {batch_size}...")
 
     cols = ["ISBN", "Tên sách", "NXB", "Format", "Khối lượng", "Đơn vị khối lượng", "Dài (Length)", "Rộng (Width)", "Cao (Height)", "Đơn vị kích thước", "image_url", "image_name", "description(vi)"]
 
+    processed_in_this_run = 0
     for i in range(0, total_to_process, batch_size):
         current_batch = to_process[i : i + batch_size]
         batch_num = (i // batch_size) + 1
         total_batches = (total_to_process + batch_size - 1) // batch_size
         
-        print(f"\n--- STARTING BATCH {batch_num}/{total_batches} ({len(current_batch)} items) ---")
+        emit_log(f"\n--- STARTING BATCH {batch_num}/{total_batches} ({len(current_batch)} items) ---")
         
         for isbn in current_batch:
+            emit_log(f"Processing: {isbn}")
             res = process_isbn(isbn)
             
             # Merge this single result into existing_df and save immediately
@@ -326,17 +322,22 @@ def main():
             # Re-save to disk
             save_df = existing_df.reindex(columns=cols)
             save_df.to_excel(OUTPUT_FILE, index=False)
-            print(f"  Saved: {isbn}")
+            emit_log(f"  Saved: {isbn}")
+            
+            processed_in_this_run += 1
+            if progress_callback:
+                progress_callback(int((processed_in_this_run / total_to_process) * 100))
             
             time.sleep(3)
 
         # Pause between batches if not the last one
         if i + batch_size < total_to_process:
             wait_time = 45 # seconds
-            print(f"\n--- BATCH {batch_num} DONE. Waiting {wait_time}s before next batch to avoid rate limits... ---")
+            emit_log(f"\n--- BATCH {batch_num} DONE. Waiting {wait_time}s before next batch to avoid rate limits... ---")
             time.sleep(wait_time)
 
-    print(f"\nALL DONE! Total now: {len(existing_df)} in {OUTPUT_FILE}")
+    emit_log(f"\nALL DONE! Total now: {len(existing_df)} in {OUTPUT_FILE}")
+    if progress_callback: progress_callback(100)
 
 if __name__ == "__main__":
-    main()
+    run_scraper()
