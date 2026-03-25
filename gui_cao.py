@@ -81,19 +81,24 @@ class ScraperGUI:
         input_exists = os.path.exists(INPUT_FILE)
         output_exists = os.path.exists(OUTPUT_FILE)
         
+        can_run = False
         if input_exists:
-            self.input_status.set("FILE FOUND")
-            # Extra check: is it empty?
             try:
                 df = pd.read_excel(INPUT_FILE)
+                count = len(df)
                 if df.empty:
                     self.input_status.set("FILE EMPTY")
                     self.input_label.configure(foreground="orange")
+                elif count > 30:
+                    self.input_status.set(f"TOO MANY ITEMS ({count} > 30)")
+                    self.input_label.configure(foreground="red")
+                    messagebox.showwarning("Limit Exceeded", f"Dánh sách có {count} mã ISBN. Vui lòng xóa bớt để còn tối đa 30 mã.")
                 else:
-                    self.input_status.set(f"OK ({len(df)} items found)")
+                    self.input_status.set(f"OK ({count} items found)")
                     self.input_label.configure(foreground="green")
-            except:
-                self.input_status.set("ERROR READING")
+                    can_run = True
+            except Exception as e:
+                self.input_status.set(f"ERROR READING: {e}")
                 self.input_label.configure(foreground="red")
         else:
             self.input_status.set("NOT FOUND")
@@ -111,11 +116,11 @@ class ScraperGUI:
             self.output_status.set("NEW FILE WILL BE CREATED")
             self.output_label.configure(foreground="green")
             
-        # Disable Run if no input
-        if not input_exists:
-            self.run_btn.state(['disabled'])
-        else:
+        # Disable Run if no input or too many items
+        if can_run:
             self.run_btn.state(['!disabled'])
+        else:
+            self.run_btn.state(['disabled'])
 
     def update_progress(self, val):
         self.progress_bar['value'] = val
