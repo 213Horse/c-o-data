@@ -267,20 +267,76 @@ def process_isbn(isbn):
     return merged
 
 def main():
-    if not os.path.exists(INPUT_FILE): return
-    df = pd.read_excel(INPUT_FILE)
-    results = []
-    for isbn in df.iloc[:10, 0]:
-        isbn = str(isbn).strip()
-        if not isbn or isbn == "nan": continue
-        results.append(process_isbn(isbn))
-        time.sleep(3)
+    if not os.path.exists(INPUT_FILE):
+        print(f"Error: {INPUT_FILE} not found.")
+        return
+    
+    # 1. Load existing results if any to track progress
+    existing_isbns = set()
+    existing_df = pd.DataFrame()
+    if os.path.exists(OUTPUT_FILE):
+        try:
+            existing_df = pd.read_excel(OUTPUT_FILE)
+            if not existing_df.empty and "ISBN" in existing_df.columns:
+                existing_isbns = set(existing_df["ISBN"].astype(str).tolist())
+                print(f"Found {len(existing_isbns)} already processed items in {OUTPUT_FILE}")
+        except Exception as e:
+            print(f"Warning: Could not read {OUTPUT_FILE}, starting fresh. Error: {e}")
 
-    output_df = pd.DataFrame(results)
+    # 2. Load input list
+    df = pd.read_excel(INPUT_FILE)
+    
+    # 3. Filter for unprocessed ISBNs
+    to_process = []
+    for isbn in df.iloc[:, 0]:
+        isbn_str = str(isbn).strip()
+        if not isbn_str or isbn_str == "nan": continue
+        if isbn_str not in existing_isbns:
+            to_process.append(isbn_str)
+    
+    if not to_process:
+        print("All ISBNs have been processed!")
+        return
+
+    # 4. Process up to 30 items in batches of 30
+    to_process = to_process[:30]
+    batch_size = 30
+    total_to_process = len(to_process)
+    print(f"Total remaining: {total_to_process}. Processing in batches of {batch_size}...")
+
     cols = ["ISBN", "Tên sách", "NXB", "Format", "Khối lượng", "Đơn vị khối lượng", "Dài (Length)", "Rộng (Width)", "Cao (Height)", "Đơn vị kích thước", "image_url", "image_name", "description(vi)"]
-    output_df = output_df.reindex(columns=cols)
-    output_df.to_excel(OUTPUT_FILE, index=False)
-    print(f"DONE -> {OUTPUT_FILE}")
+
+    for i in range(0, total_to_process, batch_size):
+        current_batch = to_process[i : i + batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (total_to_process + batch_size - 1) // batch_size
+        
+        print(f"\n--- STARTING BATCH {batch_num}/{total_batches} ({len(current_batch)} items) ---")
+        
+        for isbn in current_batch:
+            res = process_isbn(isbn)
+            
+            # Merge this single result into existing_df and save immediately
+            new_row_df = pd.DataFrame([res])
+            if existing_df.empty:
+                existing_df = new_row_df
+            else:
+                existing_df = pd.concat([existing_df, new_row_df], ignore_index=True)
+            
+            # Re-save to disk
+            save_df = existing_df.reindex(columns=cols)
+            save_df.to_excel(OUTPUT_FILE, index=False)
+            print(f"  Saved: {isbn}")
+            
+            time.sleep(3)
+
+        # Pause between batches if not the last one
+        if i + batch_size < total_to_process:
+            wait_time = 45 # seconds
+            print(f"\n--- BATCH {batch_num} DONE. Waiting {wait_time}s before next batch to avoid rate limits... ---")
+            time.sleep(wait_time)
+
+    print(f"\nALL DONE! Total now: {len(existing_df)} in {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     main()
