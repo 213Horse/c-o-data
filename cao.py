@@ -32,18 +32,22 @@ def clean_text(text):
     return text.strip()
 
 def parse_dimensions(dim_str):
-    if not dim_str: return None, None, None
+    if not dim_str: return None, None, None, None
     matches = re.findall(r"(\d+\.?\d*)", dim_str)
     # Extract unit (e.g., inches, cm)
     unit_match = re.search(r"([a-zA-Z]+)$", dim_str.strip())
     unit = unit_match.group(1) if unit_match else ""
     
     if len(matches) >= 3:
-        l = f"{matches[0]} {unit}".strip()
-        w = f"{matches[1]} {unit}".strip()
-        h = f"{matches[2]} {unit}".strip()
-        return l, w, h
-    return None, None, None
+        return matches[0], matches[1], matches[2], unit
+    return None, None, None, None
+
+def parse_weight(weight_str):
+    if not weight_str: return None, None
+    match = re.search(r"(\d+\.?\d*)\s*(.*)", str(weight_str))
+    if match:
+        return match.group(1), match.group(2).strip()
+    return weight_str, None
 
 def download_image(url, isbn):
     if not url: return None
@@ -100,9 +104,10 @@ def get_open_library_data(isbn):
 # -------------------------
 def get_amazon_data(query, query_type="isbn"):
     try:
+        from curl_cffi import requests as curl_requests
         search_suffix = "&i=stripbooks" if query_type == "isbn" else " paperback"
         search_url = f"https://www.amazon.com/s?k={query}{search_suffix}"
-        res = requests.get(search_url, headers=HEADERS, timeout=15)
+        res = curl_requests.get(search_url, impersonate="chrome110", timeout=15)
         soup = BeautifulSoup(res.text, "lxml")
 
         links = soup.select("a.a-link-normal.s-no-outline")
@@ -122,7 +127,7 @@ def get_amazon_data(query, query_type="isbn"):
             product_url = "https://www.amazon.com" + links[0].get("href")
 
         time.sleep(1.5)
-        res2 = requests.get(product_url, headers=HEADERS, timeout=15)
+        res2 = curl_requests.get(product_url, impersonate="chrome110", timeout=15)
         soup2 = BeautifulSoup(res2.text, "lxml")
 
         title = soup2.select_one("#productTitle")
@@ -194,16 +199,19 @@ def get_amazon_data(query, query_type="isbn"):
                     final_format = k
                     break
 
-        d_l, d_w, d_h = parse_dimensions(dim_str)
+        d_l, d_w, d_h, d_unit = parse_dimensions(dim_str)
+        w_val, w_unit = parse_weight(weight_str)
 
         return {
             "Tên sách": title,
             "NXB": pub_str,
             "Format": final_format,
-            "Khối lượng": weight_str,
+            "Khối lượng": w_val,
+            "Đơn vị khối lượng": w_unit,
             "Dài (Length)": d_l,
             "Rộng (Width)": d_w,
             "Cao (Height)": d_h,
+            "Đơn vị kích thước": d_unit,
             "image_url": img_url,
             "description(vi)": desc
         }
@@ -247,7 +255,7 @@ def process_isbn(isbn):
     
     # Merge
     merged = {"ISBN": isbn}
-    fields = ["Tên sách", "NXB", "Format", "Khối lượng", "Dài (Length)", "Rộng (Width)", "Cao (Height)", "image_url", "description(vi)"]
+    fields = ["Tên sách", "NXB", "Format", "Khối lượng", "Đơn vị khối lượng", "Dài (Length)", "Rộng (Width)", "Cao (Height)", "Đơn vị kích thước", "image_url", "description(vi)"]
     for field in fields:
         for res in results:
             if res.get(field):
@@ -262,14 +270,14 @@ def main():
     if not os.path.exists(INPUT_FILE): return
     df = pd.read_excel(INPUT_FILE)
     results = []
-    for isbn in df.iloc[:, 0]:
+    for isbn in df.iloc[:10, 0]:
         isbn = str(isbn).strip()
         if not isbn or isbn == "nan": continue
         results.append(process_isbn(isbn))
         time.sleep(3)
 
     output_df = pd.DataFrame(results)
-    cols = ["ISBN", "Tên sách", "NXB", "Format", "Khối lượng", "Dài (Length)", "Rộng (Width)", "Cao (Height)", "image_url", "image_name", "description(vi)"]
+    cols = ["ISBN", "Tên sách", "NXB", "Format", "Khối lượng", "Đơn vị khối lượng", "Dài (Length)", "Rộng (Width)", "Cao (Height)", "Đơn vị kích thước", "image_url", "image_name", "description(vi)"]
     output_df = output_df.reindex(columns=cols)
     output_df.to_excel(OUTPUT_FILE, index=False)
     print(f"DONE -> {OUTPUT_FILE}")
