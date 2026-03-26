@@ -9,8 +9,8 @@ class ScraperGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("ISBN Scraper Tool")
-        self.root.geometry("700x550")
-        
+        self.root.geometry("700x650") 
+        self.root.minsize(700, 650)
         # Style
         style = ttk.Style()
         style.configure("TButton", padding=5, font=("Arial", 10))
@@ -97,10 +97,10 @@ class ScraperGUI:
                 if df.empty:
                     self.input_status.set("FILE EMPTY")
                     self.input_label.configure(foreground="orange")
-                elif count > 30:
-                    self.input_status.set(f"TOO MANY ITEMS ({count} > 30)")
+                elif count > 1000:
+                    self.input_status.set(f"TOO MANY ITEMS ({count} > 1000)")
                     self.input_label.configure(foreground="red")
-                    messagebox.showwarning("Limit Exceeded", f"Dánh sách có {count} mã ISBN. Vui lòng xóa bớt để còn tối đa 30 mã.")
+                    messagebox.showwarning("Limit Exceeded", f"Dánh sách có {count} mã ISBN. Vui lòng xóa bớt để còn tối đa 1000 mã.")
                 else:
                     self.input_status.set(f"OK ({count} items found)")
                     self.input_label.configure(foreground="green")

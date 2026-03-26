@@ -476,8 +476,8 @@ def run_scraper(mode="foreign", progress_callback=None, log_callback=None):
         if progress_callback: progress_callback(100)
         return
 
-    # 4. Process up to 30 items
-    to_process = to_process[:30]
+    # 4. Process up to 1000 items
+    to_process = to_process[:1000]
     total_to_process = len(to_process)
     emit_log(f"Total remaining: {total_to_process}. Starting...")
 
