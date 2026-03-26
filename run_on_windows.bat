@@ -7,9 +7,13 @@ echo ==========================================
 :: Check if Python is installed
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Python chua duoc cai dat hoac chua duoc them vao PATH.
-    echo Vui long tai va cai dat Python tai: https://www.python.org/
-    echo Luu y: Hay chon "Add Python to PATH" khi cai dat.
+    echo [LOI] Khong tim thay Python tren may tinh nay!
+    echo ------------------------------------------
+    echo Ban can cai dat Python de chay tool nay:
+    echo 1. Tai Python tai: https://www.python.org/downloads/
+    echo 2. Khi cai dat, bat buoc phai tich chon "Add Python to PATH"
+    echo 3. Sau khi cai xong, hay mo lai file nay.
+    echo ------------------------------------------
     pause
     exit /b
 )

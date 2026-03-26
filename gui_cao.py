@@ -39,6 +39,14 @@ class ScraperGUI:
         self.output_label = ttk.Label(status_frame, textvariable=self.output_status, font=("Arial", 10, "bold"))
         self.output_label.grid(row=1, column=1, sticky=tk.W, padx=10)
         
+        # Mode Selection
+        mode_frame = ttk.LabelFrame(main_frame, text=" Chế độ tìm kiếm ", padding="10")
+        mode_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.search_mode = tk.StringVar(value="foreign")
+        ttk.Radiobutton(mode_frame, text="Sách nước ngoài (Amazon/Google/OL)", variable=self.search_mode, value="foreign").pack(side=tk.LEFT, padx=10)
+        ttk.Radiobutton(mode_frame, text="Sách tiếng Việt (Amazon/Fahasa)", variable=self.search_mode, value="vietnamese").pack(side=tk.LEFT, padx=10)
+        
         # Terminal-like Log Area
         log_frame = ttk.LabelFrame(main_frame, text=" Execution Log ", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
@@ -140,14 +148,17 @@ class ScraperGUI:
 
     def run_logic(self):
         try:
+            mode = self.search_mode.get()
             run_scraper(
+                mode=mode,
                 progress_callback=self.update_progress,
                 log_callback=lambda m: self.root.after(0, self.log, m)
             )
             self.root.after(0, lambda: messagebox.showinfo("Done", "Scraping completed successfully!"))
         except Exception as e:
-            self.root.after(0, self.log, f"CRITICAL ERROR: {e}", "error")
-            self.root.after(0, lambda: messagebox.showerror("Error", f"An unexpected error occurred:\n{e}"))
+            err_msg = str(e)
+            self.root.after(0, self.log, f"CRITICAL ERROR: {err_msg}", "error")
+            self.root.after(0, lambda m=err_msg: messagebox.showerror("Error", f"An unexpected error occurred:\n{m}"))
         finally:
             self.root.after(0, lambda: self.run_btn.state(['!disabled']))
             self.root.after(0, lambda: self.refresh_btn.state(['!disabled']))

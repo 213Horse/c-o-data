@@ -1,0 +1,30 @@
+# HƯỚNG DẪN CÀI ĐẶT VÀ SỬ DỤNG (Dành cho Windows)
+
+Dành cho người mới bắt đầu, không cần biết về IT.
+
+## Bước 1: Cài đặt Python (Bắt buộc)
+Nếu máy bạn chưa có Python, hãy làm theo các bước sau:
+1. Truy cập trang web chính thức: https://www.python.org/downloads/
+2. Nhấn vào nút vàng **"Download Python 3.12.x"** (hoặc bản mới nhất).
+3. **QUAN TRỌNG:** Khi mở file cài đặt lên, hãy tích vào ô **"Add Python to PATH"** ở phía dưới cùng trước khi nhấn "Install Now".
+4. Đợi quá trình cài đặt hoàn tất và nhấn "Close".
+
+## Bước 2: Chạy ứng dụng lần đầu
+1. Giải nén file `CaoData_Windows.zip` vào một thư mục trên máy tính của bạn.
+2. Tìm và nhấp đúp vào file **`run_on_windows.bat`**.
+3. Lần đầu chạy, nó sẽ tự động tải các thư viện cần thiết (như pandas, requests, vv.). Quá trình này mất khoảng 30 giây đến 1 phút tùy tốc độ mạng.
+4. Sau khi cài xong, giao diện phần mềm "ISBN Scraper" sẽ hiện lên.
+
+## Bước 3: Đóng gói thành file .exe (Tùy chọn)
+Nếu bạn muốn tạo ra một file `.exe` duy nhất để có thể copy gửi cho người khác dùng luôn (không cần họ cài Python):
+1. Nhấp đúp vào file **`build_exe_windows.bat`**.
+2. Đợi cửa sổ đen chạy xong (mất khoảng 2-3 phút).
+3. Sau khi chạy xong, bạn sẽ thấy thư mục **`dist`** xuất hiện. 
+4. File chạy nằm trong: `dist/gui_cao/gui_cao.exe`. Bạn có thể copy nguyên thư mục `gui_cao` này gửi cho bất kỳ ai.
+
+## Các lưu ý quan trọng:
+* **File Excel đầu vào:** Tool sẽ đọc file `danhsachisbn.xlsx`. Hãy đảm bảo file này nằm chung thư mục với tool và cột ISBN là cột đầu tiên.
+* **Dữ liệu đầu ra:** Sẽ được lưu vào file `output.xlsx`.
+* **Lỗi chặn:** Tool đã tích hợp sẵn API của Fahasa nên hạn chế tối đa việc bị chặn bởi Google hay Amazon.
+
+Chúc bạn sử dụng hiệu quả!
